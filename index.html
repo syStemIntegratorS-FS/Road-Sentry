@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DRM River Sentry</title>
+    <title>DRM Road Sentry</title>
     <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -104,7 +104,7 @@
 <!-- LOGIN/SETTINGS PAGE -->
 <div id="loginPage" class="login-page">
     <div class="settings-box">
-        <h1>DRM River Sentry</h1>
+        <h1>DRM Road Sentry</h1>
         
         <h3> MQTT Settings</h3>
         <input type="text" id="mqtt_host" placeholder="MQTT Host (wss://...)" value="wss://699cfaaf78a040b5a6ab0bb14948e8f1.s1.eu.hivemq.cloud:8884/mqtt">
@@ -123,7 +123,7 @@
 <!-- MAIN DASHBOARD -->
 <div id="dashboardPage" class="container hidden">
     <div class="header">
-        <h1 id="dashboardTitle">DRM River Sentry</h1>
+        <h1 id="dashboardTitle">DRM Road Sentry</h1>
         <div class="subtitle" id="dashboardSubtitle">Loading...</div>
         <div class="time-display" id="liveTime">--:--:--</div>
         <div class="date-display" id="liveDate">--</div>
@@ -131,7 +131,7 @@
 
     <div class="alert-card" id="mainAlertCard">
         <div class="alert-level level-normal" id="alertDisplay">NORMAL</div>
-        <div class="alert-message" id="alertMessage">River conditions normal</div>
+        <div class="alert-message" id="alertMessage">Road conditions normal</div>
         <div class="alert-action" id="alertAction">No action required</div>
     </div>
 
