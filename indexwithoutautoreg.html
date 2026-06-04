@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DRM River Monitor</title>
+    <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: monospace; background: #0a0e12; color: #e0e0e0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        /* Login/Settings Page */
+        .login-page { max-width: 500px; margin: 50px auto; }
+        .settings-box { background: #1a1e24; padding: 30px; border-radius: 20px; border: 1px solid #2a2f38; }
+        .settings-box h1 { text-align: center; margin-bottom: 20px; color: #4fc3f7; }
+        .settings-box h3 { color: #ffc107; margin: 15px 0 10px 0; }
+        input { width: 100%; padding: 10px; margin: 8px 0; background: #0f1217; border: 1px solid #2a2f38; color: white; border-radius: 8px; }
+        button { background: #4caf50; color: white; padding: 12px; border: none; border-radius: 8px; cursor: pointer; width: 100%; font-size: 1.1em; font-weight: bold; }
+        button:hover { opacity: 0.9; }
+        .info-text { color: #8892b0; font-size: 0.75em; margin-top: 5px; }
+        
+        /* Main Dashboard */
+        .header { text-align: center; margin-bottom: 24px; padding: 16px; background: linear-gradient(135deg, #1a1e24, #0f1217); border-radius: 20px; border: 1px solid #2a2f38; }
+        .header h1 { font-size: 1.8em; background: linear-gradient(135deg, #4fc3f7, #0288d1); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        .subtitle { font-size: 0.8em; color: #8892b0; margin-top: 5px; }
+        .time-display { font-size: 2em; font-weight: bold; font-family: 'Courier New', monospace; margin: 8px 0; color: #4fc3f7; }
+        .date-display { color: #8892b0; font-size: 0.85em; }
+        
+        .alert-card { background: #1a1e24; border-radius: 24px; padding: 28px 20px; margin-bottom: 20px; text-align: center; border: 1px solid #2a2f38; }
+        .alert-level { font-size: 2.5em; font-weight: 800; padding: 24px; border-radius: 20px; margin: 12px 0; }
+        .level-normal { background: #0f1a12; color: #4caf50; border-left: 4px solid #4caf50; }
+        .level-yellow { background: #1a1a0a; color: #ffc107; border-left: 4px solid #ffc107; animation: pulse 1.2s infinite; }
+        .level-orange { background: #1a0f0a; color: #ff9800; border-left: 4px solid #ff9800; animation: pulse 0.9s infinite; }
+        .level-red { background: #1a0a0a; color: #f44336; border-left: 4px solid #f44336; animation: pulse 0.4s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        
+        .alert-message { font-size: 1.1em; margin: 12px 0; color: #8892b0; }
+        .alert-action { background: #0f1217; padding: 14px; border-radius: 16px; font-size: 0.9em; margin-top: 12px; border: 1px solid #2a2f38; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+        .stat-card { background: #1a1e24; border-radius: 20px; padding: 16px; text-align: center; border: 1px solid #2a2f38; }
+        .stat-value { font-size: 1.3em; font-weight: bold; margin-top: 6px; font-family: 'Courier New', monospace; }
+        
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .site-card { background: #1a1e24; border-radius: 20px; padding: 20px; border: 1px solid #2a2f38; }
+        .site-card.level-red { background: #2a0a0a; border-left: 4px solid #f44336; animation: pulse-red 0.5s infinite; }
+        .site-card.level-orange { background: #2a1a0a; border-left: 4px solid #ff9800; animation: pulse-orange 0.8s infinite; }
+        .site-card.level-yellow { background: #2a2a0a; border-left: 4px solid #ffc107; }
+        .site-card.level-normal { background: #0a1a0a; border-left: 4px solid #4caf50; }
+        .site-card.offline { background: #1a1a1a; border-left: 4px solid #757575; opacity: 0.7; }
+        @keyframes pulse-red { 0% { opacity: 1; } 50% { opacity: 0.85; } 100% { opacity: 1; } }
+        @keyframes pulse-orange { 0% { opacity: 1; } 50% { opacity: 0.9; } 100% { opacity: 1; } }
+        
+        .site-header { display: flex; justify-content: space-between; margin-bottom: 15px; }
+        .site-title h3 { font-size: 1.1em; }
+        .site-title p { font-size: 0.8em; color: #8892b0; }
+        .site-status { padding: 4px 10px; border-radius: 20px; font-size: 0.7em; font-weight: bold; }
+        .status-online { background: #4caf50; color: white; }
+        .status-offline { background: #757575; color: white; }
+        
+        .alert-display { font-size: 2em; font-weight: bold; text-align: center; padding: 15px; border-radius: 16px; margin: 10px 0; }
+        .alert-instruction { background: #0f1217; padding: 10px; border-radius: 12px; font-size: 0.8em; text-align: center; margin-top: 10px; }
+        .site-footer { display: flex; justify-content: space-between; margin-top: 15px; font-size: 0.7em; color: #8892b0; }
+        
+        .logs-card { background: #1a1e24; border-radius: 20px; padding: 20px; margin-top: 20px; border: 1px solid #2a2f38; }
+        .logs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #2a2f38; flex-wrap: wrap; gap: 10px; }
+        .logs-buttons { display: flex; gap: 10px; }
+        .clear-btn, .export-btn { background: #2a2f38; border: none; color: #8892b0; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 0.8em; font-family: monospace; transition: all 0.2s; }
+        .clear-btn:hover { background: #3a3f48; color: white; }
+        .export-btn:hover { background: #4caf50; color: white; }
+        
+        .logs-list { max-height: 350px; overflow-y: auto; }
+        .log-item { padding: 10px; border-left: 3px solid; margin-bottom: 8px; background: #0f1217; border-radius: 10px; font-size: 0.85em; font-family: monospace; }
+        .log-red { border-left-color: #f44336; }
+        .log-orange { border-left-color: #ff9800; }
+        .log-yellow { border-left-color: #ffc107; }
+        .log-normal { border-left-color: #4caf50; }
+        .log-offline { border-left-color: #9e9e9e; }
+        .log-time { font-size: 0.7em; color: #8892b0; margin-top: 4px; }
+        
+        .status-bar { background: #0f1217; border-radius: 60px; padding: 12px 16px; text-align: center; margin-top: 20px; border: 1px solid #2a2f38; }
+        .led { width: 10px; height: 10px; border-radius: 10px; display: inline-block; margin-right: 8px; }
+        .led-online { background: #4caf50; animation: pulse 1s infinite; }
+        .led-offline { background: #f44336; }
+        .led-waiting { background: #ffc107; animation: pulse 1s infinite; }
+        
+        .hidden { display: none; }
+        .reconnect-btn { float: right; cursor: pointer; color: #4fc3f7; text-decoration: underline; margin-left: 15px; }
+        
+        /* Bottom Logout Button */
+        .bottom-logout { margin-top: 20px; text-align: center; }
+        .bottom-logout button { background: #f44336; width: auto; padding: 8px 24px; font-size: 0.9em; }
+        .bottom-logout button:hover { background: #d32f2f; }
+        
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f1217; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #2a2f38; border-radius: 10px; }
+        
+        @media (max-width: 768px) { .dashboard-grid { grid-template-columns: 1fr; } .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+    </style>
+</head>
+<body>
+<!-- LOGIN/SETTINGS PAGE -->
+<div id="loginPage" class="login-page">
+    <div class="settings-box">
+        <h1>🌊 DRM River Monitor</h1>
+        
+        <h3>📨 MQTT Settings</h3>
+        <input type="text" id="mqtt_host" placeholder="MQTT Host (wss://...)" value="wss://699cfaaf78a040b5a6ab0bb14948e8f1.s1.eu.hivemq.cloud:8884/mqtt">
+        <input type="text" id="mqtt_user" placeholder="Username" value="">
+        <input type="password" id="mqtt_pass" placeholder="Password" value="">
+        
+        <h3>📍 Location Settings</h3>
+        <input type="text" id="location" placeholder="Location">
+        <div class="info-text">Enter your location name.| careful case-sensitive |  </div>
+        
+        <button onclick="connectAndStart()">🔌 CONNECT & START</button>
+        <div class="info-text" style="margin-top:15px; text-align:center;">Settings saved to your browser</div>
+    </div>
+</div>
+
+<!-- MAIN DASHBOARD -->
+<div id="dashboardPage" class="container hidden">
+    <div class="header">
+        <h1 id="dashboardTitle">🌊 DRM River Monitor</h1>
+        <div class="subtitle" id="dashboardSubtitle">Loading...</div>
+        <div class="time-display" id="liveTime">--:--:--</div>
+        <div class="date-display" id="liveDate">--</div>
+    </div>
+
+    <div class="alert-card" id="mainAlertCard">
+        <div class="alert-level level-normal" id="alertDisplay">NORMAL</div>
+        <div class="alert-message" id="alertMessage">River conditions normal</div>
+        <div class="alert-action" id="alertAction">No action required</div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card"><div>🚨 SYSTEM STATUS</div><div class="stat-value" id="alertStatus">NORMAL</div></div>
+        <div class="stat-card"><div>📡 SIGNAL</div><div class="stat-value" id="signalStatus">--</div></div>
+        <div class="stat-card"><div>🕐 LAST UPDATE</div><div class="stat-value" id="lastUpdate">--:--:--</div></div>
+        <div class="stat-card"><div>🔴 COMMS STATUS</div><div class="stat-value" id="liveIndicator" style="color: #4caf50;">● WAIT</div></div>
+    </div>
+
+    <div class="dashboard-grid" id="dashboardGrid"><div style="text-align: center; padding: 50px;">Loading stations...</div></div>
+
+    <div class="logs-card">
+        <div class="logs-header">
+            <span>📜 INCIDENT LOG</span>
+            <div class="logs-buttons">
+                <button class="export-btn" onclick="exportLogsToCSV()">📥 EXPORT CSV</button>
+                <button class="clear-btn" onclick="clearLogs()">🗑️ CLEAR LOGS</button>
+            </div>
+        </div>
+        <div class="logs-list" id="logsList"><div style="text-align: center; padding: 20px;">Awaiting data...</div></div>
+    </div>
+
+    <div class="status-bar">
+        <span class="led led-waiting" id="statusLed"></span>
+        <span id="statusText">Not connected. Click CONNECT.</span>
+        <span class="reconnect-btn" onclick="showLoginPage()">🔌 Connect</span>
+    </div>
+
+    <!-- LOGOUT BUTTON AT BOTTOM -->
+    <div class="bottom-logout">
+        <button onclick="logout()">🚪 LOGOUT</button>
+    </div>
+</div>
+
+<script>
+    // ============================================
+    // GLOBAL VARIABLES
+    // ============================================
+    let client = null;
+    let sites = {};
+    let alertLogs = [];
+    let lastAnyMessage = Date.now();
+    let offlineCheckInterval = null;
+
+    // ============================================
+    // LOAD/SAVE SETTINGS
+    // ============================================
+    function loadSettings() {
+        const saved = localStorage.getItem('drm_settings');
+        if (saved) {
+            try {
+                const s = JSON.parse(saved);
+                document.getElementById('mqtt_host').value = s.host || '';
+                document.getElementById('mqtt_user').value = s.username || '';
+                document.getElementById('mqtt_pass').value = s.password || '';
+                document.getElementById('location').value = s.location || '';
+            } catch(e) {}
+        }
+    }
+
+    function saveSettings() {
+        const settings = {
+            host: document.getElementById('mqtt_host').value,
+            username: document.getElementById('mqtt_user').value,
+            password: document.getElementById('mqtt_pass').value,
+            location: document.getElementById('location').value
+        };
+        localStorage.setItem('drm_settings', JSON.stringify(settings));
+        return settings;
+    }
+
+    // ============================================
+    // PAGE NAVIGATION
+    // ============================================
+    function showLoginPage() {
+        // Disconnect MQTT if connected
+        if (client) {
+            client.end(true);
+            client = null;
+        }
+        
+        // Clear data
+        sites = {};
+        alertLogs = [];
+        
+        // Show login, hide dashboard
+        document.getElementById('loginPage').classList.remove('hidden');
+        document.getElementById('dashboardPage').classList.add('hidden');
+        
+        // Reload settings into form
+        loadSettings();
+    }
+
+    function showDashboard() {
+        document.getElementById('loginPage').classList.add('hidden');
+        document.getElementById('dashboardPage').classList.remove('hidden');
+    }
+
+    // ============================================
+    // LOGOUT
+    // ============================================
+    function logout() {
+        showLoginPage();
+    }
+
+    // ============================================
+    // DASHBOARD UI FUNCTIONS
+    // ============================================
+    function updateTime() {
+        const now = new Date();
+        document.getElementById('liveTime').innerHTML = now.toLocaleTimeString('en-PH', { hour12: false });
+        document.getElementById('liveDate').innerHTML = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+    }
+
+    function updateMainUI() {
+        let highestSeverity = 0;
+        let highestAlert = 'NORMAL';
+        let highestMessage = 'River conditions normal';
+        let highestAction = 'No action required';
+        
+        for (let key in sites) {
+            const s = sites[key];
+            let sev = 0;
+            if (s.alert === 'RED') sev = 3;
+            else if (s.alert === 'ORANGE') sev = 2;
+            else if (s.alert === 'YELLOW') sev = 1;
+            
+            if (sev > highestSeverity) {
+                highestSeverity = sev;
+                highestAlert = s.alert;
+                highestMessage = s.message;
+                highestAction = s.instruction;
+            }
+        }
+        
+        const alertDisplay = document.getElementById('alertDisplay');
+        const alertMessage = document.getElementById('alertMessage');
+        const alertAction = document.getElementById('alertAction');
+        const alertStatus = document.getElementById('alertStatus');
+        const mainCard = document.getElementById('mainAlertCard');
+        
+        alertDisplay.className = 'alert-level';
+        mainCard.className = 'alert-card';
+        
+        if (highestAlert === 'RED') {
+            alertDisplay.classList.add('level-red');
+            alertDisplay.innerHTML = '🔴 RED ALERT - EVACUATE NOW 🔴';
+            alertMessage.innerHTML = highestMessage;
+            alertAction.innerHTML = highestAction;
+            alertStatus.innerHTML = 'CRITICAL';
+            document.title = '🔴 RED ALERT';
+        } else if (highestAlert === 'ORANGE') {
+            alertDisplay.classList.add('level-orange');
+            alertDisplay.innerHTML = '🟠 ORANGE ALERT - PREPARE TO EVACUATE 🟠';
+            alertMessage.innerHTML = highestMessage;
+            alertAction.innerHTML = highestAction;
+            alertStatus.innerHTML = 'WARNING';
+            document.title = '🟠 ORANGE ALERT';
+        } else if (highestAlert === 'YELLOW') {
+            alertDisplay.classList.add('level-yellow');
+            alertDisplay.innerHTML = '🟡 YELLOW ALERT - MONITOR WATER LEVELS 🟡';
+            alertMessage.innerHTML = highestMessage;
+            alertAction.innerHTML = highestAction;
+            alertStatus.innerHTML = 'ALERT';
+            document.title = '🟡 YELLOW ALERT';
+        } else {
+            alertDisplay.classList.add('level-normal');
+            alertDisplay.innerHTML = 'NORMAL';
+            alertMessage.innerHTML = 'River conditions normal';
+            alertAction.innerHTML = 'No action required';
+            alertStatus.innerHTML = 'NORMAL';
+            document.title = 'DRM River Monitor';
+        }
+    }
+
+    function addLog(alert, siteId, location, message, action) {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('en-PH', { hour12: false });
+        const dateStr = now.toLocaleDateString('en-PH');
+        
+        alertLogs.unshift({ alert, siteId, location, message, action, time: timeStr, date: dateStr });
+        if (alertLogs.length > 200) alertLogs.pop();
+        
+        const logsDiv = document.getElementById('logsList');
+        if (alertLogs.length === 0) {
+            logsDiv.innerHTML = '<div style="text-align: center; padding: 20px;">No incident records</div>';
+        } else {
+            logsDiv.innerHTML = alertLogs.map(log => `
+                <div class="log-item log-${log.alert.toLowerCase()}">
+                    <strong>[${log.alert}]</strong> ${log.location} - ${log.siteId}<br>${log.message}
+                    <div class="log-time">${log.date} ${log.time} · ${log.action}</div>
+                </div>
+            `).join('');
+        }
+        localStorage.setItem('drm_logs', JSON.stringify(alertLogs.slice(0, 200)));
+    }
+
+    function exportLogsToCSV() {
+        if (alertLogs.length === 0) { alert("No records to export!"); return; }
+        let csv = "\uFEFFDate,Time,Alert,Location,Site,Message,Instruction\n";
+        alertLogs.forEach(log => {
+            csv += `${log.date},${log.time},${log.alert},${log.location},${log.siteId},"${log.message}","${log.action}"\n`;
+        });
+        const now = new Date();
+        const filename = `DRM_Logs_${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()}.csv`;
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(link.href);
+    }
+
+    function clearLogs() {
+        if (confirm('WARNING: This will permanently delete all incident records. Are you sure?')) {
+            alertLogs = [];
+            localStorage.removeItem('drm_logs');
+            document.getElementById('logsList').innerHTML = '<div style="text-align: center; padding: 20px;">No incident records</div>';
+        }
+    }
+
+    function updateSiteCard(siteKey, data) {
+        let card = document.getElementById(`card-${siteKey.replace(/[^a-zA-Z0-9]/g, '_')}`);
+        if (!card) {
+            const grid = document.getElementById('dashboardGrid');
+            const safeId = siteKey.replace(/[^a-zA-Z0-9]/g, '_');
+            const newCard = document.createElement('div');
+            newCard.className = 'site-card level-normal';
+            newCard.id = `card-${safeId}`;
+            newCard.innerHTML = `
+                <div class="site-header">
+                    <div class="site-title"><h3>${data.siteId}</h3><p>${data.location}</p></div>
+                    <div class="site-status status-online">ONLINE</div>
+                </div>
+                <div class="alert-display">✅ NORMAL</div>
+                <div class="alert-message" style="font-size:0.9em; text-align:center; margin:10px 0; color:#8892b0;">River conditions normal</div>
+                <div class="alert-instruction">No action required</div>
+                <div class="site-footer">
+                    <span>📡 RSSI: <span class="rssi">--</span> dBm</span>
+                    <span class="last-update">🕐 --:--:--</span>
+                </div>
+            `;
+            grid.appendChild(newCard);
+            card = newCard;
+        }
+        
+        card.className = 'site-card';
+        if (data.offline) {
+            card.classList.add('offline');
+        } else if (data.alert === 'RED') {
+            card.classList.add('level-red');
+        } else if (data.alert === 'ORANGE') {
+            card.classList.add('level-orange');
+        } else if (data.alert === 'YELLOW') {
+            card.classList.add('level-yellow');
+        } else {
+            card.classList.add('level-normal');
+        }
+        
+        const alertDisplay = card.querySelector('.alert-display');
+        const alertMsg = card.querySelector('.alert-message');
+        const alertInst = card.querySelector('.alert-instruction');
+        const statusSpan = card.querySelector('.site-status');
+        const rssiSpan = card.querySelector('.rssi');
+        const updateSpan = card.querySelector('.last-update');
+        
+        if (data.offline) {
+            alertDisplay.innerHTML = '📡 OFFLINE';
+            alertMsg.innerHTML = 'No communication received';
+            alertInst.innerHTML = 'Check device connection';
+            statusSpan.innerHTML = 'OFFLINE';
+            statusSpan.className = 'site-status status-offline';
+        } else {
+            if (data.alert === 'RED') {
+                alertDisplay.innerHTML = '🔴 RED ALERT';
+                alertMsg.innerHTML = data.message;
+                alertInst.innerHTML = data.instruction;
+                statusSpan.innerHTML = 'ALERT';
+            } else if (data.alert === 'ORANGE') {
+                alertDisplay.innerHTML = '🟠 ORANGE ALERT';
+                alertMsg.innerHTML = data.message;
+                alertInst.innerHTML = data.instruction;
+                statusSpan.innerHTML = 'ALERT';
+            } else if (data.alert === 'YELLOW') {
+                alertDisplay.innerHTML = '🟡 YELLOW ALERT';
+                alertMsg.innerHTML = data.message;
+                alertInst.innerHTML = data.instruction;
+                statusSpan.innerHTML = 'ALERT';
+            } else {
+                alertDisplay.innerHTML = '✅ NORMAL';
+                alertMsg.innerHTML = 'River conditions normal';
+                alertInst.innerHTML = 'No action required';
+                statusSpan.innerHTML = 'ONLINE';
+            }
+            statusSpan.className = 'site-status status-online';
+        }
+        
+        if (data.rssi) rssiSpan.innerHTML = data.rssi;
+        if (data.lastUpdate) updateSpan.innerHTML = data.lastUpdate;
+    }
+
+    function renderDashboard() {
+        const grid = document.getElementById('dashboardGrid');
+        grid.innerHTML = '';
+        for (let key in sites) {
+            updateSiteCard(key, sites[key]);
+        }
+    }
+
+    // ============================================
+    // MESSAGE PROCESSING
+    // ============================================
+    function processMessage(data) {
+        const siteKey = `${data.location}|${data.site_id}`;
+        
+        if (!sites[siteKey]) {
+            sites[siteKey] = {
+                location: data.location,
+                siteId: data.site_id,
+                alert: 'NORMAL',
+                message: '',
+                instruction: '',
+                rssi: null,
+                lastUpdate: null,
+                offline: false,
+                lastTimestamp: Date.now()
+            };
+            renderDashboard();
+        }
+        
+        sites[siteKey].lastTimestamp = Date.now();
+        sites[siteKey].alert = data.alert || 'NORMAL';
+        sites[siteKey].message = data.message || '';
+        sites[siteKey].instruction = data.instruction || '';
+        sites[siteKey].offline = false;
+        if (data.rssi) sites[siteKey].rssi = data.rssi;
+        
+        const now = new Date();
+        sites[siteKey].lastUpdate = now.toLocaleTimeString('en-PH', { hour12: false });
+        
+        updateSiteCard(siteKey, sites[siteKey]);
+        updateMainUI();
+        
+        if (data.event === 'trigger') {
+            addLog(data.alert, data.site_id, data.location, data.message, data.instruction);
+        } else if (data.event === 'release') {
+            addLog('NORMAL', data.site_id, data.location, 'All Clear - River conditions normal', 'No action required');
+        }
+        
+        document.getElementById('lastUpdate').innerHTML = now.toLocaleTimeString('en-PH', { hour12: false });
+        if (data.rssi) document.getElementById('signalStatus').innerHTML = data.rssi;
+        lastAnyMessage = Date.now();
+    }
+
+    function processTelemetry(data) {
+        const siteKey = `${data.location}|${data.site_id}`;
+        if (sites[siteKey]) {
+            sites[siteKey].lastTimestamp = Date.now();
+            sites[siteKey].rssi = data.rssi;
+            sites[siteKey].offline = false;
+            const now = new Date();
+            sites[siteKey].lastUpdate = now.toLocaleTimeString('en-PH', { hour12: false });
+            updateSiteCard(siteKey, sites[siteKey]);
+        }
+        lastAnyMessage = Date.now();
+        document.getElementById('lastUpdate').innerHTML = new Date().toLocaleTimeString('en-PH', { hour12: false });
+        if (data.rssi) document.getElementById('signalStatus').innerHTML = data.rssi;
+    }
+
+    // ============================================
+    // OFFLINE DETECTION
+    // ============================================
+    function startOfflineDetection() {
+        if (offlineCheckInterval) clearInterval(offlineCheckInterval);
+        offlineCheckInterval = setInterval(() => {
+            const now = Date.now();
+            for (let key in sites) {
+                if (sites[key].lastTimestamp && (now - sites[key].lastTimestamp) > 60000 && !sites[key].offline) {
+                    sites[key].offline = true;
+                    sites[key].alert = 'OFFLINE';
+                    updateSiteCard(key, sites[key]);
+                    addLog('OFFLINE', sites[key].siteId, sites[key].location, 'No communication received', 'Check device connection');
+                    updateMainUI();
+                }
+            }
+        }, 10000);
+    }
+
+    // ============================================
+    // MQTT CONNECTION
+    // ============================================
+    function connectAndStart() {
+        // Get and validate settings
+        const settings = saveSettings();
+        const location = settings.location.trim();
+        
+        if (!location) {
+            alert('Please enter your LGU location');
+            return;
+        }
+        
+        // Build topic
+        const topic = `lgu/${location}/#`;
+        
+        // Update UI title
+        document.getElementById('dashboardTitle').innerHTML = `🌊 DRM ${location.toUpperCase()} River Monitor`;
+        document.getElementById('dashboardSubtitle').innerHTML = `${location.toUpperCase()} | Flood Early Warning System`;
+        
+        // Show dashboard, hide login
+        showDashboard();
+        
+        // Reset state
+        sites = {};
+        renderDashboard();
+        
+        const led = document.getElementById('statusLed');
+        const textSpan = document.getElementById('statusText');
+        led.className = 'led led-waiting';
+        textSpan.innerHTML = 'Connecting to MQTT...';
+        
+        // Disconnect existing client if any
+        if (client) {
+            client.end(true);
+        }
+        
+        // Connect to MQTT
+        client = mqtt.connect(settings.host, {
+            username: settings.username,
+            password: settings.password,
+            protocol: 'wss',
+            reconnectPeriod: 0,
+            connectTimeout: 15000,
+            keepalive: 60
+        });
+        
+        client.on('connect', () => {
+            console.log('✅ MQTT Connected');
+            led.className = 'led led-online';
+            textSpan.innerHTML = `✅ Connected - ${location}`;
+            client.subscribe(topic, (err) => {
+                if (err) console.error('Subscribe error:', topic, err);
+                else console.log('Subscribed to:', topic);
+            });
+        });
+        
+        client.on('error', (err) => {
+            console.error('❌ MQTT Error:', err);
+            led.className = 'led led-offline';
+            textSpan.innerHTML = '❌ Connection error - check settings';
+        });
+        
+        client.on('close', () => {
+            console.log('MQTT Connection closed');
+            led.className = 'led led-offline';
+            textSpan.innerHTML = '❌ Disconnected';
+        });
+        
+        client.on('message', (topic, payload) => {
+            try {
+                const data = JSON.parse(payload.toString());
+                console.log('📨 Received:', data);
+                if (data.type === 'telemetry') {
+                    processTelemetry(data);
+                } else {
+                    processMessage(data);
+                }
+            } catch(e) { 
+                console.error('Parse error:', e); 
+            }
+        });
+    }
+
+    // ============================================
+    // LIVE INDICATOR
+    // ============================================
+    setInterval(() => {
+        const timeSince = (Date.now() - lastAnyMessage) / 1000;
+        const liveIndicator = document.getElementById('liveIndicator');
+        if (timeSince < 15) {
+            liveIndicator.innerHTML = '● ONLINE';
+            liveIndicator.style.color = '#4caf50';
+        } else if (timeSince < 30) {
+            liveIndicator.innerHTML = '● DEGRADED';
+            liveIndicator.style.color = '#ff9800';
+        } else {
+            liveIndicator.innerHTML = '● OFFLINE';
+            liveIndicator.style.color = '#f44336';
+        }
+    }, 3000);
+    
+    // ============================================
+    // INITIALIZATION
+    // ============================================
+    function init() {
+        loadSettings();
+        
+        // Load saved logs
+        const savedLogs = localStorage.getItem('drm_logs');
+        if (savedLogs) {
+            try {
+                alertLogs = JSON.parse(savedLogs);
+                if (alertLogs.length > 0) {
+                    const logsDiv = document.getElementById('logsList');
+                    logsDiv.innerHTML = alertLogs.map(log => `
+                        <div class="log-item log-${log.alert.toLowerCase()}">
+                            <strong>[${log.alert}]</strong> ${log.location} - ${log.siteId}<br>${log.message}
+                            <div class="log-time">${log.date} ${log.time} · ${log.action}</div>
+                        </div>
+                    `).join('');
+                }
+            } catch(e) {}
+        }
+        
+        updateTime();
+        setInterval(updateTime, 1000);
+        startOfflineDetection();
+        
+        // NO AUTO-CONNECT - User must click CONNECT button
+    }
+    
+    init();
+</script>
+</body>
+</html>
