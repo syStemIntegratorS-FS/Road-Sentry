@@ -2,3 +2,6 @@ Main/
 latestMainINO/
 **/*.ino
 Firmware/
+src/
+Firmware
+platformio.ini
