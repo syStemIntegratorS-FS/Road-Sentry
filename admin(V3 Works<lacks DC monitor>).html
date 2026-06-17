@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DRM Admin - All LGUs</title>
+    <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: monospace; background: #0a0e12; color: #e0e0e0; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .login-page { max-width: 500px; margin: 50px auto; }
+        .settings-box { background: #141214; padding: 30px; border-radius: 20px; border: 1px solid #2a2f38; }
+        .settings-box h1 { text-align: center; margin-bottom: 20px; color: #4fc3f7; }
+        input { width: 100%; padding: 10px; margin: 8px 0; background: #1a1e24; border: 1px solid #2a2f38; color: white; border-radius: 8px; }
+        button { background: #4caf50; color: white; padding: 12px; border: none; border-radius: 8px; cursor: pointer; width: 100%; font-size: 1.1em; }
+        .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px; }
+        .stat-card { background: #1a1e24; border-radius: 20px; padding: 16px; text-align: center; }
+        .stat-value { font-size: 1.5em; font-weight: bold; margin-top: 6px; }
+        .filter-tabs { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .filter-btn { background: #2a2f38; border: none; color: #8892b0; padding: 8px 16px; border-radius: 20px; cursor: pointer; }
+        .filter-btn.active { background: #4caf50; color: white; }
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
+        .site-card { background: #1a1e24; border-radius: 16px; padding: 16px; border-left: 4px solid; }
+        .site-card.road { border-left-color: #ff9800; }
+        .site-card.river { border-left-color: #2196f3; }
+        .site-card.level-red { background: #2a0a0a; animation: pulse 0.5s infinite; }
+        .site-card.level-orange { background: #2a1a0a; animation: pulse 0.8s infinite; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.7em; }
+        .badge-road { background: #ff9800; color: black; }
+        .badge-river { background: #2196f3; color: white; }
+        .alert-display { font-size: 1.4em; font-weight: bold; text-align: center; padding: 10px; margin: 10px 0; border-radius: 12px; background: #0f1217; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        .hidden { display: none; }
+        .status-bar { background: #0f1217; border-radius: 60px; padding: 12px 16px; text-align: center; margin-top: 20px; }
+        .led { width: 10px; height: 10px; border-radius: 10px; display: inline-block; margin-right: 8px; }
+        .led-online { background: #4caf50; animation: pulse 1s infinite; }
+        .time-display { font-size: 1.3em; margin: 8px 0; color: #4fc3f7; }
+    </style>
+</head>
+<body>
+
+    <div id="loginPage" class="login-page">
+        <div class="settings-box">
+            <h1 style="color: #f44336; font-style: italic;text-transform: uppercase;">🏛️ Alto Admin Dashboard</h1>
+            <h3>MQTT Settings</h3>
+            <input type="text" id="mqtt_host" placeholder="MQTT Host" value="wss://da4b7dd506824d31ba0940e25eb20f42.s1.eu.hivemq.cloud:8884/mqtt">
+            <input type="text" id="mqtt_user" placeholder="Username" value="">
+            <input type="password" id="mqtt_pass" placeholder="Password" value="">
+            <button onclick="connectAdmin()">🔌 CONNECT TO ALL LGUs</button>
+            <div style="margin-top: 15px; font-size: 0.8em; color: #8892b0;">Admin sees ALL sensors from ALL locations</div>
+        </div>
+    </div>
+
+    <div id="dashboardPage" class="container hidden">
+        <div class="header" style="text-align:center; margin-bottom:20px;">
+            <h1>🏛️ Alto Admin Dashboard</h1>
+            <div class="subtitle">Monitoring ALL LGUs | Complete Infrastructure</div>
+            <div class="time-display" id="liveTime">--:--:--</div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div>TOTAL NODES</div>
+                <div class="stat-value" id="totalNodes">0</div>
+            </div>
+            <div class="stat-card">
+                <div>LGUs</div>
+                <div class="stat-value" id="totalLGUs">0</div>
+            </div>
+            <div class="stat-card">
+                <div>ROADS</div>
+                <div class="stat-value" id="roadCount">0</div>
+            </div>
+            <div class="stat-card">
+                <div>RIVERS</div>
+                <div class="stat-value" id="riverCount">0</div>
+            </div>
+            <div class="stat-card">
+                <div>ALERTS</div>
+                <div class="stat-value" id="alertCount" style="color:#f44336;">0</div>
+            </div>
+        </div>
+
+        <div class="filter-tabs">
+            <button class="filter-btn active" onclick="filterBy('all')">ALL</button>
+            <button class="filter-btn" onclick="filterBy('road')">ROADS</button>
+            <button class="filter-btn" onclick="filterBy('river')">RIVERS</button>
+            <button class="filter-btn" onclick="filterBy('alert')">ALERTS ONLY</button>
+        </div>
+
+        <div class="dashboard-grid" id="dashboardGrid">Waiting for data...</div>
+
+        <div class="log-container" style="margin-top: 20px; background: #0d1117; border: 1px solid #30363d; border-radius: 12px; padding: 15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h3 style="color: #8b949e; font-size: 0.9em; text-transform: uppercase;">Live Event Log</h3>
+                <button onclick="document.getElementById('activityLog').innerHTML=''" style="width: auto; padding: 4px 10px; font-size: 0.8em; margin: 0; background: #21262d; border: 1px solid #30363d;">Clear</button>
+            </div>
+            <div id="activityLog" style="height: 250px; overflow-y: auto; font-family: monospace; font-size: 0.85em; color: #c9d1d9;">
+                <div style="color: #8b949e; font-style: italic;">Awaiting network events...</div>
+            </div>
+        </div>
+
+        <div class="status-bar">
+            <span class="led led-waiting" id="statusLed"></span>
+            <span id="statusText">Not connected</span>
+            <span onclick="forceReconnect()" style="float:right;cursor:pointer;">⟳ Reconnect</span>
+            <span onclick="logout()" style="float:right;cursor:pointer;margin-right:15px;color:#f44336;">🚪 Logout</span>
+        </div>
+    </div>
+
+    <script>
+        let client = null;
+        let allNodes = {};
+        let currentFilter = 'all';
+
+        function connectAdmin() {
+            const host = document.getElementById('mqtt_host').value;
+            const user = document.getElementById('mqtt_user').value;
+            const pass = document.getElementById('mqtt_pass').value;
+
+            document.getElementById('loginPage').classList.add('hidden');
+            document.getElementById('dashboardPage').classList.remove('hidden');
+
+            client = mqtt.connect(host, {
+                username: user,
+                password: pass,
+                protocol: 'wss',
+                reconnectPeriod: 5000,
+                clientId: "admin_dashboard_" + Date.now()
+            });
+
+            client.on('connect', () => {
+                document.getElementById('statusLed').className = 'led led-online';
+                document.getElementById('statusText').innerHTML = '✅ Connected - Monitoring ALL LGUs';
+                client.subscribe("drm/admin/all");
+                client.subscribe("lgu/+/all");
+            });
+
+            client.on('message', (topic, payload) => {
+                try {
+                    const msg = payload.toString();
+                    console.log(`📥 [${topic}]`, JSON.parse(msg)); // Raw JSON to DevTools
+                    const data = JSON.parse(msg);
+                    processNode(data);
+                    appendLog(topic, data);
+                } catch (e) {
+                    console.error("MQTT Parse Error", e);
+                }
+            });
+
+            client.on('error', () => {
+                document.getElementById('statusLed').className = 'led led-offline';
+            });
+        }
+
+        function processNode(data) {
+            const key = `${data.location}|${data.site_id}`;
+
+            if (!allNodes[key]) {
+                allNodes[key] = {
+                    location: data.location,
+                    site_id: data.site_id,
+                    sensor_type: data.sensor_type || 'unknown',
+                    alert: 'NORMAL',
+                    message: 'Awaiting event...',
+                    instruction: ''
+                };
+            }
+
+            if (data.alert) allNodes[key].alert = data.alert;
+            if (data.message) allNodes[key].message = data.message;
+            if (data.instruction) allNodes[key].instruction = data.instruction;
+            allNodes[key].lastUpdate = new Date().toLocaleTimeString();
+
+            updateStats();
+            renderDashboard();
+        }
+
+        function appendLog(topic, data) {
+            // Drop routine telemetry out of the UI log
+            if (data.type === 'telemetry') return;
+
+            const logBox = document.getElementById('activityLog');
+
+            if (logBox.children.length === 1 && logBox.innerText.includes('Awaiting')) {
+                logBox.innerHTML = '';
+            }
+
+            const time = new Date().toLocaleTimeString();
+            const alertColor = data.alert === 'RED' ? '#ff7b72' : (data.alert === 'ORANGE' ? '#f0883e' : (data.alert === 'YELLOW' ? '#d29922' : '#238636'));
+
+            const logEntry = document.createElement('div');
+            logEntry.style.marginBottom = '6px';
+            logEntry.style.borderBottom = '1px solid #21262d';
+            logEntry.style.paddingBottom = '6px';
+
+            const locString = data.location ? `[<span style="color:#d29922">${data.location}</span>] ` : '';
+
+            let eventTag = '';
+            if (data.event === 'trigger') eventTag = '<span style="color:#ff7b72; font-weight:bold;">🚨 STATE CHANGE</span>';
+            else if (data.event === 'release') eventTag = '<span style="color:#238636; font-weight:bold;">✅ ALL CLEAR</span>';
+            else if (data.event === 'continuous') eventTag = '<span style="color:#d29922;">⚠️ ONGOING ALERT</span>';
+            else eventTag = '<span>⚡ EVENT</span>';
+
+            logEntry.innerHTML = `
+                <span style="color:#8b949e">[${time}]</span>
+                ${eventTag}
+                ${locString}<strong>${data.site_id}</strong>:
+                <span style="color:${alertColor}; font-weight:bold;">${data.alert || 'NORMAL'}</span> -
+                <span style="color:#8b949e">${data.message || 'Alert update'}</span>
+            `;
+
+            logBox.prepend(logEntry);
+
+            // Limit DOM memory
+            while (logBox.children.length > 100) {
+                logBox.removeChild(logBox.lastChild);
+            }
+        }
+
+        function updateStats() {
+            let lgus = new Set();
+            let roadCount = 0, riverCount = 0, alertCount = 0;
+
+            for (let key in allNodes) {
+                lgus.add(allNodes[key].location);
+                if (allNodes[key].sensor_type === 'road') roadCount++;
+                if (allNodes[key].sensor_type === 'river') riverCount++;
+                if (allNodes[key].alert !== 'NORMAL') alertCount++;
+            }
+
+            document.getElementById('totalNodes').innerHTML = Object.keys(allNodes).length;
+            document.getElementById('totalLGUs').innerHTML = lgus.size;
+            document.getElementById('roadCount').innerHTML = roadCount;
+            document.getElementById('riverCount').innerHTML = riverCount;
+            document.getElementById('alertCount').innerHTML = alertCount;
+        }
+
+        function filterBy(type) {
+            currentFilter = type;
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            renderDashboard();
+        }
+
+        function renderDashboard() {
+            const grid = document.getElementById('dashboardGrid');
+            grid.innerHTML = '';
+
+            let filtered = [];
+            for (let key in allNodes) {
+                const node = allNodes[key];
+                if (currentFilter === 'all') filtered.push(node);
+                else if (currentFilter === 'alert' && node.alert !== 'NORMAL') filtered.push(node);
+                else if (node.sensor_type === currentFilter) filtered.push(node);
+            }
+
+            if (filtered.length === 0) {
+                grid.innerHTML = '<div style="text-align:center;padding:50px;">No nodes match filter</div>';
+                return;
+            }
+
+            filtered.forEach(node => {
+                const card = document.createElement('div');
+                const typeClass = node.sensor_type || 'unknown';
+                const alertClass = node.alert === 'RED' ? 'level-red' : (node.alert === 'ORANGE' ? 'level-orange' : '');
+                card.className = `site-card ${typeClass} ${alertClass}`;
+
+                const icon = node.sensor_type === 'road' ? '🚗' : (node.sensor_type === 'river' ? '🌊' : '📡');
+                const alertText = node.alert === 'RED' ? '🔴 RED' : (node.alert === 'ORANGE' ? '🟠 ORANGE' : (node.alert === 'YELLOW' ? '🟡 YELLOW' : '✅ NORMAL'));
+
+                card.innerHTML = `
+                <div style="display:flex; justify-content:space-between;">
+                    <div>
+                        <span class="badge badge-${typeClass}">${icon} ${typeClass.toUpperCase()}</span>
+                        <h3 style="margin-top:8px;">${node.site_id}</h3>
+                        <p style="color:#8892b0; font-size:0.8em;">📍 ${node.location}</p>
+                    </div>
+                    <div style="font-size:0.7em; color:#8892b0;">${node.lastUpdate || '--'}</div>
+                </div>
+                <div class="alert-display">${alertText}</div>
+                <div style="text-align:center; margin:8px 0; font-size:0.9em;">${node.message || 'No data'}</div>
+                <div style="background:#0f1217; padding:8px; border-radius:8px; font-size:0.75em; text-align:center;">${node.instruction || 'Awaiting data'}</div>
+            `;
+                grid.appendChild(card);
+            });
+        }
+
+        function forceReconnect() { if (client) client.end(true); setTimeout(connectAdmin, 500); }
+        function logout() { if (client) client.end(true); location.reload(); }
+        setInterval(() => { document.getElementById('liveTime').innerHTML = new Date().toLocaleTimeString(); }, 1000);
+    </script>
+</body>
+</html>
