@@ -8,19 +8,16 @@ The built-in RGB LED provides instant visual feedback on the device's connection
 
 | Status | Color | Pattern | Meaning |
 |--------|-------|---------|---------|
-| **Booting / Connecting** | 🟣 Purple | Solid | System starting up or establishing connection |
-| **WiFi Failed** | 🔴 Red | Solid | No network connection - Check WiFi credentials/range |
-| **MQTT Failed** | 🔴 Red | Blinking | Broker unreachable - Check MQTT server |
-| **Weak Signal** | 🟡 Yellow | Solid | RSSI < -70dBm - Poor connection quality |
-| **All Connected** | 🟢 Green | Solid | System operational - Normal operation |
+| **Booting / Connecting** | 🟣 Purple | Blinking | System starting up |
+| **MQTT Failed** | 🔴 Red | Blinking | Broker unreachable - Check Wifi/MQTT server |
+| **All Connected** | 🟢 Green | Blinking | System operational - Normal operation |
 
 ### Quick Troubleshooting
 
 | LED State | Action Required |
 |-----------|-----------------|
 | 🟣 Purple (stuck) | Device is still connecting - Wait or reboot |
-| 🔴 Red Solid | Check WiFi credentials and router power |
-| 🔴 Red Blinking | Verify MQTT broker address and credentials |
+| 🔴 Red Blinking | Check WiFi credentials and router power / Verify MQTT broker address and credentials |
 | 🟡 Yellow | Reposition device for better signal or check for interference |
 | 🟢 Green | ✅ System is healthy - No action needed |
 
