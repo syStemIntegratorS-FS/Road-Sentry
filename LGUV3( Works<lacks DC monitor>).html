@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LGU DRM Sentry Dashboard</title>
+    <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: monospace; background: #0d1117; color: #c9d1d9; padding: 20px; }
+        .container { max-width: 1500px; margin: 0 auto; }
+        .login-page { max-width: 500px; margin: 50px auto; }
+        .settings-box { background: #161b22; padding: 30px; border-radius: 20px; border: 1px solid #30363d; }
+        .settings-box h1 { text-align: center; margin-bottom: 20px; color: #58a6ff; }
+        input { width: 100%; padding: 10px; margin: 8px 0; background: #0d1117; border: 1px solid #30363d; color: #f0f6fc; border-radius: 8px; }
+        input:focus { outline: 1px solid #58a6ff; border-color: #58a6ff; }
+        button { background: #238636; color: #ffffff; padding: 12px; border: none; border-radius: 8px; cursor: pointer; width: 100%; font-size: 1.1em; font-weight: bold; margin-top: 10px; }
+        button:hover { background: #2ea043; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+        .stat-card { background: #161b22; border-radius: 20px; padding: 16px; text-align: center; border: 1px solid #21262d; }
+        .stat-value { font-size: 1.5em; font-weight: bold; color: #f0f6fc; }
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
+        .site-card { background: #161b22; border-radius: 16px; padding: 16px; border: 1px solid #30363d; border-left: 6px solid; transition: transform 0.2s; }
+        .site-card.road { border-left-color: #f0883e; }
+        .site-card.river { border-left-color: #1f6feb; }
+        .site-card.level-orange { background: #382314; border-color: #f0883e; animation: pulse 1.2s infinite; }
+        .site-card.level-red { background: #3c1818; border-color: #ff7b72; animation: pulse 0.8s infinite; }
+        .site-card.level-red .alert-display { color: #ff938a; background: #220f0f; }
+        .site-card.level-orange .alert-display { color: #ffc183; background: #241306; }
+        .alert-display { font-size: 1.4em; font-weight: bold; text-align: center; padding: 12px; margin: 12px 0; border-radius: 12px; background: #0d1117; color: #58a6ff; }
+        @keyframes pulse { 0% { border-color: rgba(255, 123, 114, 0.4); } 50% { border-color: rgba(255, 123, 114, 1); } 100% { border-color: rgba(255, 123, 114, 0.4); } }
+        .hidden { display: none; }
+        .status-bar { background: #161b22; border-radius: 60px; padding: 12px 16px; text-align: center; margin-top: 20px; border: 1px solid #30363d; font-size: 0.9em; }
+        .led { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; vertical-align: middle; }
+        .led-online { background: #238636; box-shadow: 0 0 8px #238636; }
+        .led-waiting { background: #d29922; box-shadow: 0 0 8px #d29922; }
+        .led-offline { background: #f85149; box-shadow: 0 0 8px #f85149; }
+        .time-display { font-size: 1.5em; margin: 8px 0; color: #58a6ff; font-weight: bold; }
+        .badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 0.75em; font-weight: bold; }
+        .badge-road { background: rgba(240, 136, 62, 0.15); color: #ff944d; border: 1px solid rgba(240, 136, 62, 0.3); }
+        .badge-river { background: rgba(31, 111, 235, 0.15); color: #58a6ff; border: 1px solid rgba(31, 111, 235, 0.3); }
+        .subtitle { color: #d29922; font-size: 1rem; text-align: left; margin-top: 1.5rem; font-style: italic; text-transform: uppercase; letter-spacing: 1px; font-family: "Brush Script MT", "Apple Chancery", "Comic Sans MS", cursive; }
+    </style>
+</head>
+<body>
+
+    <div id="loginPage" class="login-page">
+        <div class="settings-box">
+            <h1 style="text-transform: uppercase;font-size: 2rem;font-family: 'Brush Script MT', 'Apple Chancery', 'Comic Sans MS', cursive;">🏛️ LGU DRM Dashboard</h1>
+            <h3 class="subtitle">MQTT Settings</h3>
+            <div style="margin-top: 0.5rem; font-size: 0.75em; color: #8b949e; font-style: italic;">Do not clear this field on your own!</div>
+            <input type="text" id="mqtt_host" value="wss://da4b7dd506824d31ba0940e25eb20f42.s1.eu.hivemq.cloud:8884/mqtt" placeholder="MQTT Host wss:// < from hive>:8884/mqtt">
+            <input type="text" id="mqtt_user" placeholder="Username" value="">
+            <input type="password" id="mqtt_pass" placeholder="Password" value="">
+            <h3 class="subtitle">LGU Name</h3>
+            <input type="text" id="lgu_name" placeholder="Target LGU Name (e.g., Pototan)">
+            <button onclick="connectLGU()"> CONNECT TO MY LGU</button>
+            <div style="margin-top: 15px; font-size: 0.8em; text-align: center; color: #8b949e;">You will only see nodes in YOUR municipality</div>
+        </div>
+    </div>
+
+    <div id="dashboardPage" class="container hidden">
+        <div class="header" style="text-align:center; margin-bottom:20px;">
+            <h1 id="dashboardTitle">LGU DRM Sentry Dashboard</h1>
+            <div class="subtitle" id="dashboardSubtitle" style="text-align:center; margin-top:5px;">Your Flood Monitoring System</div>
+            <div class="time-display" id="liveTime">--:--:--</div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div style="color: #8b949e; font-size: 0.8em; font-weight: bold;">TOTAL NODES</div>
+                <div class="stat-value" id="totalNodes">0</div>
+            </div>
+            <div class="stat-card">
+                <div style="color: #8b949e; font-size: 0.8em; font-weight: bold;">ROADS</div>
+                <div class="stat-value" id="roadCount">0</div>
+            </div>
+            <div class="stat-card">
+                <div style="color: #8b949e; font-size: 0.8em; font-weight: bold;">RIVERS</div>
+                <div class="stat-value" id="riverCount">0</div>
+            </div>
+            <div class="stat-card">
+                <div style="color: #8b949e; font-size: 0.8em; font-weight: bold;">ALERTS</div>
+                <div class="stat-value" id="alertCount" style="color:#ff7b72;">0</div>
+            </div>
+        </div>
+
+        <div class="dashboard-grid" id="dashboardGrid">Waiting for data...</div>
+
+        <div class="log-container" style="margin-top: 20px; background: #0d1117; border: 1px solid #30363d; border-radius: 12px; padding: 15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h3 style="color: #8b949e; font-size: 0.9em; text-transform: uppercase;">Live Event Log</h3>
+                <button onclick="document.getElementById('activityLog').innerHTML=''" style="width: auto; padding: 4px 10px; font-size: 0.8em; margin: 0; background: #21262d; border: 1px solid #30363d;">Clear</button>
+            </div>
+            <div id="activityLog" style="height: 250px; overflow-y: auto; font-family: monospace; font-size: 0.85em; color: #c9d1d9;">
+                <div style="color: #8b949e; font-style: italic;">Awaiting network events...</div>
+            </div>
+        </div>
+
+        <div class="status-bar">
+            <span class="led led-waiting" id="statusLed"></span>
+            <span id="statusText">Not connected</span>
+            <span onclick="forceReconnect()" style="float:right; cursor:pointer; color: #58a6ff;">⟳ Reconnect</span>
+            <span onclick="logout()" style="float:right; cursor:pointer; margin-right:15px; color:#ff7b72;">🚪 Logout</span>
+        </div>
+    </div>
+
+    <script>
+        let client = null;
+        let myNodes = {};
+        let myLGU = "";
+
+        function connectLGU() {
+            myLGU = document.getElementById('lgu_name').value.trim();
+            if (!myLGU) { alert("Enter your LGU name"); return; }
+
+            const host = document.getElementById('mqtt_host').value;
+            const user = document.getElementById('mqtt_user').value;
+            const pass = document.getElementById('mqtt_pass').value;
+
+            document.getElementById('dashboardTitle').innerHTML = `🏛️ LGU ${myLGU.toUpperCase()} Sentry Dashboard`;
+            document.getElementById('dashboardSubtitle').innerHTML = `${myLGU} | Flood Monitoring`;
+            document.getElementById('loginPage').classList.add('hidden');
+            document.getElementById('dashboardPage').classList.remove('hidden');
+
+            client = mqtt.connect(host, {
+                username: user,
+                password: pass,
+                protocol: 'wss',
+                reconnectPeriod: 5000,
+                clientId: "lgu_" + myLGU + "_" + Date.now()
+            });
+
+            client.on('connect', () => {
+                document.getElementById('statusLed').className = 'led led-online';
+                document.getElementById('statusText').innerHTML = `Connected to ${myLGU}`;
+
+                // ARCHITECTURE FIX: Subscribe to the wildcard, parse locally.
+                // This prevents case-sensitivity mismatches on the MQTT broker level.
+                client.subscribe(`lgu/+/all`);
+            });
+
+            client.on('message', (topic, payload) => {
+                try {
+                    const msg = payload.toString();
+                    console.log(`📥 [${topic}]`, JSON.parse(msg)); // Raw JSON to DevTools
+                    const data = JSON.parse(msg);
+
+                    // Case-insensitive, robust validation
+                    const incLocation = (data.location || "").toLowerCase().trim();
+                    const targetLocation = myLGU.toLowerCase().trim();
+
+                    if (incLocation === targetLocation) {
+                        processNode(data);
+                        appendLog(topic, data);
+                    }
+                } catch (e) {
+                    console.error("MQTT Parse Error", e);
+                }
+            });
+
+            client.on('error', () => {
+                document.getElementById('statusLed').className = 'led led-offline';
+                document.getElementById('statusText').innerHTML = `Connection Error`;
+            });
+
+            client.on('close', () => {
+                document.getElementById('statusLed').className = 'led led-offline';
+                document.getElementById('statusText').innerHTML = `Disconnected`;
+            });
+        }
+
+        function processNode(data) {
+            const key = `${data.site_id}`;
+
+            if (!myNodes[key]) {
+                myNodes[key] = {
+                    site_id: data.site_id,
+                    sensor_type: data.sensor_type || 'unknown',
+                    alert: 'NORMAL',
+                    message: 'Awaiting event...',
+                    instruction: ''
+                };
+            }
+
+            if (data.alert) myNodes[key].alert = data.alert;
+            if (data.message) myNodes[key].message = data.message;
+            if (data.instruction) myNodes[key].instruction = data.instruction;
+            myNodes[key].lastUpdate = new Date().toLocaleTimeString();
+
+            updateStats();
+            renderDashboard();
+        }
+
+        function appendLog(topic, data) {
+            // Drop routine telemetry out of the UI log
+            if (data.type === 'telemetry') return;
+
+            const logBox = document.getElementById('activityLog');
+
+            if (logBox.children.length === 1 && logBox.innerText.includes('Awaiting')) {
+                logBox.innerHTML = '';
+            }
+
+            const time = new Date().toLocaleTimeString();
+            const alertColor = data.alert === 'RED' ? '#ff7b72' : (data.alert === 'ORANGE' ? '#f0883e' : (data.alert === 'YELLOW' ? '#d29922' : '#238636'));
+
+            const logEntry = document.createElement('div');
+            logEntry.style.marginBottom = '6px';
+            logEntry.style.borderBottom = '1px solid #21262d';
+            logEntry.style.paddingBottom = '6px';
+
+            let eventTag = '';
+            if (data.event === 'trigger') eventTag = '<span style="color:#ff7b72; font-weight:bold;">🚨 STATE CHANGE</span>';
+            else if (data.event === 'release') eventTag = '<span style="color:#238636; font-weight:bold;">✅ ALL CLEAR</span>';
+            else if (data.event === 'continuous') eventTag = '<span style="color:#d29922;">⚠️ ONGOING ALERT</span>';
+            else eventTag = '<span>⚡ EVENT</span>';
+
+            logEntry.innerHTML = `
+                <span style="color:#8b949e">[${time}]</span>
+                ${eventTag}
+                <strong>${data.site_id}</strong>:
+                <span style="color:${alertColor}; font-weight:bold;">${data.alert || 'NORMAL'}</span> -
+                <span style="color:#8b949e">${data.message || 'Alert update'}</span>
+            `;
+
+            logBox.prepend(logEntry);
+
+            // Limit DOM memory
+            while (logBox.children.length > 100) {
+                logBox.removeChild(logBox.lastChild);
+            }
+        }
+
+        function updateStats() {
+            let roadCount = 0, riverCount = 0, alertCount = 0;
+
+            for (let key in myNodes) {
+                if (myNodes[key].sensor_type === 'road') roadCount++;
+                if (myNodes[key].sensor_type === 'river') riverCount++;
+                if (myNodes[key].alert !== 'NORMAL') alertCount++;
+            }
+
+            document.getElementById('totalNodes').innerHTML = Object.keys(myNodes).length;
+            document.getElementById('roadCount').innerHTML = roadCount;
+            document.getElementById('riverCount').innerHTML = riverCount;
+            document.getElementById('alertCount').innerHTML = alertCount;
+        }
+
+        function renderDashboard() {
+            const grid = document.getElementById('dashboardGrid');
+            grid.innerHTML = '';
+
+            if (Object.keys(myNodes).length === 0) {
+                grid.innerHTML = '<div style="text-align:center;padding:50px;color:#8b949e;">No sensors found in your LGU</div>';
+                return;
+            }
+
+            for (let key in myNodes) {
+                const node = myNodes[key];
+                const card = document.createElement('div');
+                const typeClass = node.sensor_type || 'unknown';
+                const alertClass = node.alert === 'RED' ? 'level-red' : (node.alert === 'ORANGE' ? 'level-orange' : '');
+                card.className = `site-card ${typeClass} ${alertClass}`;
+
+                const icon = node.sensor_type === 'road' ? '🚗' : (node.sensor_type === 'river' ? '🌊' : '📡');
+                const alertText = node.alert === 'RED' ? '🔴 RED ALERT' : (node.alert === 'ORANGE' ? '🟠 ORANGE' : (node.alert === 'YELLOW' ? '🟡 YELLOW' : '✅ NORMAL'));
+
+                card.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items: center;">
+                    <div>
+                        <span class="badge badge-${typeClass}">${icon} ${typeClass.toUpperCase()}</span>
+                        <h3 style="margin-top:8px; color: #f0f6fc;">${node.site_id}</h3>
+                    </div>
+                    <div style="font-size:0.75em; color:#8b949e;">${node.lastUpdate || '--'}</div>
+                </div>
+                <div class="alert-display">${alertText}</div>
+                <div style="text-align:center; margin:12px 0; font-weight: bold; color: #f0f6fc;">${node.message || 'No data'}</div>
+                <div style="background:#0d1117; padding:10px; border-radius:8px; font-size:0.8em; text-align:center; border: 1px solid #21262d; color: #c9d1d9;">${node.instruction || 'Awaiting data'}</div>
+            `;
+                grid.appendChild(card);
+            }
+        }
+
+        function forceReconnect() { if (client) client.end(true); setTimeout(connectLGU, 500); }
+        function logout() { if (client) client.end(true); location.reload(); }
+        setInterval(() => { document.getElementById('liveTime').innerHTML = new Date().toLocaleTimeString(); }, 1000);
+    </script>
+</body>
+</html>

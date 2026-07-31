@@ -1,0 +1,3 @@
+.pio/build/esp32-s3-devkitc-1/liba98/FastLED/platforms.cpp.o: \
+ .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/platforms.cpp \
+ .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/fl/compiler_control.h
