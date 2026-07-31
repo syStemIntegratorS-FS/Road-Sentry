@@ -6,3 +6,4 @@ src/
 Firmware
 platformio.ini
 src/
+*.txt

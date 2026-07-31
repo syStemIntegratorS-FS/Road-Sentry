@@ -4,6 +4,9 @@
 #include <ArduinoJson.h>
 #include <FastLED.h>
 #include <SPIFFS.h>
+#include <esp_wifi.h> // Fixed: Native Wi-Fi controller header added
+
+const char *systemVersion = "v4.5.0"; 
 
 // ============================================
 // HARDWARE PINOUT - ESP32-S3
@@ -44,7 +47,6 @@ struct LedPattern
   const char *description;
 };
 
-// RGB Color Definitions
 const CRGB COLOR_BOOTING = CRGB::Purple;
 const CRGB COLOR_CONFIG_MODE = CRGB::Cyan;
 const CRGB COLOR_NO_WIFI = CRGB::Red;
@@ -55,7 +57,7 @@ const CRGB COLOR_ALERT_YELLOW = CRGB::Yellow;
 const CRGB COLOR_ALERT_ORANGE = CRGB::Orange;
 const CRGB COLOR_ALERT_RED = CRGB::Red;
 const CRGB COLOR_TELEMETRY = CRGB::Blue;
-//                                                    ON, OFF, REPEAT(0 for infinite), delay
+
 const LedPattern PATTERN_BOOTING = {CRGB::Purple, 100, 100, 5, 1000, "Booting sequence"};
 const LedPattern PATTERN_CONFIG_MODE = {CRGB::Cyan, 500, 500, 0, 0, "Configuration mode"};
 const LedPattern PATTERN_NO_WIFI = {CRGB::Red, 1000, 1000, 0, 0, "No WiFi - Blinking Red"};
@@ -65,12 +67,11 @@ const LedPattern PATTERN_MQTT_LOST = {CRGB::Red, 200, 200, 0, 0, "MQTT Lost - Bl
 const LedPattern PATTERN_ALERT_YELLOW = {COLOR_ALERT_YELLOW, 300, 300, 2, 2000, "Alert Level: Yellow"};
 const LedPattern PATTERN_ALERT_ORANGE = {COLOR_ALERT_ORANGE, 300, 300, 3, 2000, "Alert Level: Orange"};
 const LedPattern PATTERN_ALERT_RED = {COLOR_ALERT_RED, 100, 100, 0, 0, "Alert Level: RED"};
-const LedPattern PATTERN_TELEMETRY = {COLOR_TELEMETRY, 1000, 0, 1, 0, "Telemetry sent"};
+const LedPattern PATTERN_TELEMETRY = {COLOR_TELEMETRY, 500, 250, 2, 0, "Telemetry sent"};
 
 // ============================================
 // PAGASA / CBFEWS PROTOCOL
 // ============================================
-
 #define SIREN_L1_DURATION_MS 60000
 #define SIREN_L1_SILENCE_MS 30000
 #define SIREN_L1_CYCLES 3
@@ -96,9 +97,6 @@ const LedPattern PATTERN_TELEMETRY = {COLOR_TELEMETRY, 1000, 0, 1, 0, "Telemetry
 #define MAX_SERIAL_CMD_LENGTH 128
 #define MAX_TELNET_CMD_LENGTH 128
 
-// ============================================
-// CONFIGURATION STRUCTURE
-// ============================================
 struct Config
 {
   char wifi_ssid[64];
@@ -127,9 +125,6 @@ Config config = {
     "Admin12345",
     false};
 
-// ============================================
-// ENUMS & TYPES
-// ============================================
 enum AlertLevel
 {
   ALERT_NONE = 0,
@@ -138,9 +133,7 @@ enum AlertLevel
   ALERT_RED = 3
 };
 
-// ============================================
-// FUNCTION PROTOTYPES
-// ============================================
+// Prototypes
 AlertLevel readProbes();
 void startSiren(AlertLevel level);
 void sendTelemetry();
@@ -167,9 +160,6 @@ int freeMemory();
 String getMessage(AlertLevel level);
 String getInstruction(AlertLevel level);
 
-// ============================================
-// GLOBALS
-// ============================================
 CRGB leds[NUM_LEDS];
 WiFiClientSecure espClient;
 PubSubClient mqtt(espClient);
@@ -226,9 +216,6 @@ String command_topic;
 String serialCommandBuffer = "";
 StaticJsonDocument<512> mqttDoc;
 
-// ============================================
-// RGB LED CONTROL
-// ============================================
 void setRGB(CRGB color)
 {
   leds[0] = color;
@@ -236,9 +223,6 @@ void setRGB(CRGB color)
   FastLED.show();
 }
 
-// ============================================
-// CONFIGURATION STORAGE (SPIFFS)
-// ============================================
 void loadConfig()
 {
   if (!SPIFFS.begin(true))
@@ -312,9 +296,6 @@ void factoryReset()
   ESP.restart();
 }
 
-// ============================================
-// LED PATTERN CONTROL (RGB VERSION)
-// ============================================
 void setLedPattern(const LedPattern *pattern, bool temporary, unsigned long duration)
 {
   if (temporary)
@@ -429,17 +410,11 @@ void ledSignalAlert(AlertLevel level)
   }
 }
 
-// ============================================
-// MEMORY CHECK
-// ============================================
 int freeMemory()
 {
   return ESP.getFreeHeap();
 }
 
-// ============================================
-// NETWORK STATUS REPORT
-// ============================================
 void printNetworkStatus(Stream &output)
 {
   output.println(F("\n╔══════════════════════════════════════╗"));
@@ -456,8 +431,6 @@ void printNetworkStatus(Stream &output)
   output.print(F("WiFi RSSI:         "));
   output.print(WiFi.RSSI());
   output.println(F(" dBm"));
-  output.print(F("MQTT Broker:       "));
-  output.print(config.mqtt_broker);
   output.print(F(":"));
   output.println(config.mqtt_port);
   output.print(F("MQTT Status:       "));
@@ -467,12 +440,12 @@ void printNetworkStatus(Stream &output)
   output.print(F("Free Memory:       "));
   output.print(freeMemory());
   output.println(F(" bytes"));
+  output.print(F(" CPU Frequency:    "));
+  output.print(ESP.getCpuFreqMHz());
+  output.println(F(" MHz"));
   output.println(F("══════════════════════════════════════"));
 }
 
-// ============================================
-// TELNET REMOTE CONSOLE
-// ============================================
 void setupTelnet()
 {
   telnetServer.begin();
@@ -483,17 +456,30 @@ void setupTelnet()
 
 void sendTelnetBanner()
 {
-  telnetClient.println(F("\n╔══════════════════════════════════════╗"));
-  telnetClient.println(F("║   DRM FLOOD MONITOR v4.0 (S3)      ║"));
-  telnetClient.print(F("║   Station: "));
-  telnetClient.print(config.site_id);
-  telnetClient.println(F("\t\t\t║"));
-  telnetClient.print(F("║   Location: "));
-  telnetClient.print(config.location);
-  telnetClient.println(F("\t\t║"));
-  telnetClient.println(F("╚══════════════════════════════════════╝"));
-  telnetClient.println(F("AUTHENTICATION REQUIRED\nType: auth <password>"));
-  telnetClient.print(F("> "));
+  telnetClient.println(F("\n╔════════════════════════════════════════════╗"));
+  telnetClient.printf("║  DRM FLOOD MONITOR: %-22s ║\n", systemVersion);
+  telnetClient.printf("║  Station: %-32s ║\n", config.site_id);
+  telnetClient.printf("║  Location: %-31s ║\n", config.location);
+  telnetClient.println(F("╚════════════════════════════════════════════╝"));
+  telnetClient.println(F("AUTHENTICATION REQUIRED\nType: auth <password>\n"));
+
+  telnetClient.print(F("CPU Frequency: "));
+  telnetClient.print(ESP.getCpuFreqMHz());
+  telnetClient.println(F(" MHz"));
+
+  telnetClient.print(F("Free Memory: "));
+  telnetClient.print(freeMemory());
+  telnetClient.println(F(" bytes"));
+
+  telnetClient.print(F("WiFi RSSI: "));
+  telnetClient.print(WiFi.RSSI());
+  telnetClient.println(F(" dBm"));
+  telnetClient.print(F("WiFi IP: "));
+  telnetClient.println(WiFi.localIP());
+
+  telnetClient.print(F("MQTT Status: "));
+  telnetClient.println(mqtt.connected() ? F("CONNECTED") : F("OFFLINE"));
+  telnetClient.println(F("══════════════════════════════════════"));
 }
 
 void handleTelnetConnection()
@@ -630,13 +616,9 @@ void handleTelnetAuth(String &cmd)
   }
 }
 
-//                                            ============================================
-//                                                    UNIFIED COMMAND PROCESSOR
-//                                            ============================================
 void processCommand(String &cmd, Stream &output)
 {
   cmd.trim();
-  cmd.toLowerCase();
   if (cmd.length() == 0)
   {
     output.print(F("> "));
@@ -649,32 +631,37 @@ void processCommand(String &cmd, Stream &output)
     output.println(F("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
     output.println(F("DRM SYSTEM MANAGER CLI:"));
     output.println(F("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
-    output.println(F("  status                          Show system details"));
-    output.println(F("  restart/reboot                  Reboot core hardware"));
-    output.println(F("  factory_reset                   Clear flash profiles"));
-    output.println(F("  uptime                          Display formatted runtime"));
-    output.println(F("  set_wifi <ssid> <p>             Connect local station"));
-    output.println(F("  set_mqtt <host> <port> <usr> <pwd>"));
-    output.println(F("  set_location/<set_loc> <name>   Set geographical anchor"));
-    output.println(F("  set_site_id/<set_id> <id>       Deploy structural tag"));
-    output.println(F("  set_node_type/<set_type>        <river|road>"));
-    output.println(F("  set_admin <password>            Change admin password"));
-    output.println(F("  read_probes                     Query water matrix"));
-    output.println(F("  test_siren <level>              Trigger driver (yellow/orange/red)"));
-    output.println(F("  telemetry_now/t                 Force encrypted burst"));
-    output.println(F("  dump_config                     Print static memory map"));
-    output.println(F("  network_diag                    Verbose network analyzer"));
-    output.println(F("  stop/s                          Emergency Stop"));
+    output.println(F("  status/stats                          Show system details"));
+    output.println(F("  restart/reboot                        Reboot core hardware"));
+    output.println(F("  factory_reset                         Clear flash profiles"));
+    output.println(F("  uptime / ut                           Display formatted runtime"));
+    output.println(F("  set_wifi <ssid> <p>                   Connect local station"));
+    output.println(F("  set_mqtt <host> <port> <usr> <pwd>    mqtt Credentials"));
+    output.println(F("  set_location/<set_loc> <name>         Set geographical Location"));
+    output.println(F("  set_site_id/set_id   <id>             Site Location ID"));
+    output.println(F("  set_node_type/<set_type>              <river|road>"));
+    output.println(F("  set_admin <password>                  Change admin password"));
+    output.println(F("  read_probes                           Query water matrix"));
+    output.println(F("  test_siren <level>                    Trigger siren (yellow/orange/red)"));
+    output.println(F("  test_river <level> / test_road <lvl>  Verify alert matrix path"));
+    output.println(F("  rssi / signal                         Show WiFi signal strength"));
+    output.println(F("  telemetry_now/t                       Force encrypted burst"));
+    output.println(F("  stop/s                                Emergency Stop"));
+    output.println(F("  help / ? / h                          Show this help menu"));
+    output.println(F("  exit / quit / q                       Terminate management session"));
+    output.println(F("  WARNING!! This CLI is strictly CASE-SENSITIVE. GFY"));
     output.println(F("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
   }
-  else if (cmd == "status" || cmd == "network_diag")
+  else if (cmd == "status" || cmd == "stat" || cmd == "stats")
   {
     output.println(F("\n=================================================="));
     output.println(F("         DRM FIELD NODE DIAGNOSTIC PROFILE        "));
     output.println(F("=================================================="));
-    output.println(F("🤖 HARDWARE PROFILE:"));
+    output.println(F(" HARDWARE PROFILE:"));
+    output.print(F("  System Version      : "));
+    output.println(systemVersion);
     output.print(F("  Architecture Board : "));
-    output.println(F("ESP32-S3"));
+    output.println(F("32bit MCU"));
     output.print(F("  Target Node Type   : "));
     output.println(config.node_type);
     output.print(F("  Station Site ID    : "));
@@ -700,10 +687,6 @@ void processCommand(String &cmd, Stream &output)
     output.println();
 
     output.println(F("📨 CLOUD MQTT AGGREGATOR TUNNEL:"));
-    output.print(F("  Cluster Endpoint   : "));
-    output.print(config.mqtt_broker);
-    output.print(F(":"));
-    output.println(config.mqtt_port);
     output.print(F("  Validation User    : "));
     output.println(config.mqtt_username);
     output.print(F("  State Engine Loop  : "));
@@ -745,7 +728,7 @@ void processCommand(String &cmd, Stream &output)
     output.println(F(" bytes (free_heap)"));
     output.println(F("==================================================\n"));
   }
-  else if (cmd == "restart" || cmd == "reboot")
+  else if (cmd == "restart" || cmd == "reboot" || cmd == "/r")
   {
     output.println(F("🔄 Executing soft hardware restart..."));
     delay(1000);
@@ -755,23 +738,79 @@ void processCommand(String &cmd, Stream &output)
   {
     factoryReset();
   }
-  else if (cmd == "uptime")
+  else if (cmd == "uptime" || cmd == "ut")
   {
     unsigned long up = millis();
     int days = up / 86400000;
     int hours = (up % 86400000) / 3600000;
     int minutes = (up % 3600000) / 60000;
     int seconds = (up % 60000) / 1000;
-    output.print(F("Uptime Metrics: "));
-    output.print(days);
-    output.print(F("d "));
-    output.print(hours);
-    output.print(F("h "));
-    output.print(minutes);
-    output.print(F("m "));
-    output.print(seconds);
-    output.println(F("s"));
+    output.printf("Uptime Metrics: %dd %dh %dm %ds\n", days, hours, minutes, seconds);
   }
+  else if (cmd == "read_probes")
+  {
+    output.print(F("LOW: "));
+    output.print(digitalRead(PROBE_LOW) == LOW ? F("WET") : F("DRY"));
+    output.print(F(" | MID: "));
+    output.print(digitalRead(PROBE_MID) == LOW ? F("WET") : F("DRY"));
+    output.print(F(" | HIGH: "));
+    output.println(digitalRead(PROBE_HIGH) == LOW ? F("WET") : F("DRY"));
+  }
+  else if (cmd == "telemetry_now" || cmd == "t")
+  {
+    sendTelemetry();
+    output.println(F("📡 Manual Telemetry Sent."));
+  }
+  else if (cmd == "stop" || cmd == "s")
+  {
+    output.println(F("🛑 EMERGENCY STOP COMMAND RECEIVED"));
+    sirenActive = false;
+    sirenOn = false;
+    sirenCyclesRemaining = 0;
+    digitalWrite(SIREN_PIN, LOW);
+    activeStrobeLevel = ALERT_NONE;
+    strobeState = false;
+    digitalWrite(STROBE_GREEN, LOW);
+    digitalWrite(STROBE_ORANGE, LOW);
+    digitalWrite(STROBE_RED, LOW);
+    currentAlert = ALERT_NONE;
+    targetAlert = ALERT_NONE;
+    stableSampleCount = 0;
+    setLedPattern(&PATTERN_NORMAL);
+    output.println(F("✅ System state engine forced to nominal standby."));
+  }
+  else if (cmd == "exit" || cmd == "quit" || cmd == "q")
+  {
+    output.println(F("👋 Terminating management session. Goodbye."));
+    if (telnetSessionActive && &output == &telnetClient)
+    {
+      telnetClient.println(F("Disconnecting link..."));
+      telnetClient.flush();
+      telnetClient.stop();
+      telnetSessionActive = false;
+      telnetAuthenticated = false;
+      telnetCommandBuffer = "";
+    }
+    else
+    {
+      output.println(F("DRM UART INTERFACE RESET COMPLETED."));
+      output.print(F("> "));
+      serialCommandBuffer = "";
+    }
+  }
+  else if (cmd == "rssi" || cmd == "signal")
+  {
+    long rssi = WiFi.RSSI();
+    output.print(F("Signal Layer Matrix: "));
+    output.print(rssi);
+    output.print(F(" dBm ("));
+
+    if (rssi == 0 || rssi < -100)      output.println(F("❌ DISCONNECTED)"));
+    else if (rssi >= -50)             output.println(F("🟢 EXCELLENT/CLOSE PROXIMITY)"));
+    else if (rssi >= -70)             output.println(F("🟡 GOOD/OPERATIONAL)"));
+    else                              output.println(F("🔴 CRITICAL SHIELD LOSS)"));
+  }
+  
   else if (cmd.startsWith("set_admin "))
   {
     String newPass = cmd.substring(10);
@@ -836,13 +875,11 @@ void processCommand(String &cmd, Stream &output)
   }
   else if (cmd.startsWith("set_location ") || cmd.startsWith("set_loc "))
   {
-    // Determine the offset based on which alias was matched
     int offset = cmd.startsWith("set_location ") ? 13 : 8;
     strncpy(config.location, cmd.substring(offset).c_str(), sizeof(config.location) - 1);
     config.location[sizeof(config.location) - 1] = '\0';
     saveConfig();
-    output.print(F("Location anchor written: "));
-    output.println(config.location);
+    output.printf("Location anchor written: %s\n", config.location);
   }
   else if (cmd.startsWith("set_site_id ") || cmd.startsWith("set_id "))
   {
@@ -850,103 +887,98 @@ void processCommand(String &cmd, Stream &output)
     strncpy(config.site_id, cmd.substring(offset).c_str(), sizeof(config.site_id) - 1);
     config.site_id[sizeof(config.site_id) - 1] = '\0';
     saveConfig();
-    output.print(F("Site identity locked: "));
-    output.println(config.site_id);
+    output.printf("Site identity locked: %s\n", config.site_id);
   }
-  else if (cmd.startsWith("set_node_type ") || cmd == ("set_type"))
+  else if (cmd.startsWith("set_node_type ") || cmd.startsWith("set_type "))
   {
-    String type = cmd.substring(14);
+    int offset = cmd.startsWith("set_node_type ") ? 14 : 9;
+    String type = cmd.substring(offset);
     type.trim();
     if (type == "river" || type == "road")
     {
       strncpy(config.node_type, type.c_str(), sizeof(config.node_type) - 1);
       config.node_type[sizeof(config.node_type) - 1] = '\0';
       saveConfig();
-      output.print(F("Node logic mask: "));
-      output.println(config.node_type);
+      output.printf("Node logic mask: %s\n", config.node_type);
     }
     else
     {
       output.println(F("❌ Execution Error: Must be 'river' or 'road'"));
     }
   }
-  else if (cmd == "read_probes")
-  {
-    output.print(F("LOW: "));
-    output.print(digitalRead(PROBE_LOW) == LOW ? F("WET") : F("DRY"));
-    output.print(F(" | MID: "));
-    output.print(digitalRead(PROBE_MID) == LOW ? F("WET") : F("DRY"));
-    output.print(F(" | HIGH: "));
-    output.println(digitalRead(PROBE_HIGH) == LOW ? F("WET") : F("DRY"));
-  }
-  
   else if (cmd.startsWith("test_siren "))
   {
     String level = cmd.substring(11);
     level.trim();
-    if (level == "yellow")
-      startSiren(ALERT_YELLOW);
-    else if (level == "orange")
-      startSiren(ALERT_ORANGE);
-    else if (level == "red")
-      startSiren(ALERT_RED);
-    else
-      output.println(F("❌ Use parameters: yellow, orange, or red"));
+    if (level == "yellow")      startSiren(ALERT_YELLOW);
+    else if (level == "orange") startSiren(ALERT_ORANGE);
+    else if (level == "red")    startSiren(ALERT_RED);
+    else                        output.println(F("❌ Use parameters: yellow, orange, or red"));
   }
-
-
-  else if (cmd == "telemetry_now" || cmd == "t")
+  else if (cmd.startsWith("test_river ") || cmd.startsWith("test_road "))
   {
-    sendTelemetry();
-    output.println(F("📡 Manual Telemetry Sent."));
+    bool isRiverCmd = cmd.startsWith("test_river ");
+    int offset = isRiverCmd ? 11 : 10;
+    String level = cmd.substring(offset);
+    level.trim();
+
+    String expectedType = isRiverCmd ? "river" : "road";
+    if (String(config.node_type) != expectedType)
+    {
+      output.printf("❌ Node logic mismatch! This node is configured as '%s'. Use 'test_%s <level>'.\n",
+                    config.node_type, config.node_type);
+    }
+    else
+    {
+      AlertLevel targetLevel = ALERT_NONE;
+      bool valid = true;
+
+      if (level == "none" || level == "normal") targetLevel = ALERT_NONE;
+      else if (level == "yellow")               targetLevel = ALERT_YELLOW;
+      else if (level == "orange")               targetLevel = ALERT_ORANGE;
+      else if (level == "red")                  targetLevel = ALERT_RED;
+      else {
+        output.println(F("❌ Parameters: none, yellow, orange, or red"));
+        valid = false;
+      }
+
+      if (valid)
+      {
+        currentAlert = targetLevel;
+        targetAlert = targetLevel;
+        activeStrobeLevel = targetLevel;
+        strobeState = (targetLevel != ALERT_NONE);
+
+        if (targetLevel != ALERT_NONE)
+        {
+          startSiren(targetLevel);
+          output.printf("🚨 Initiating Matrix Test: %s Mode at level [%s]\n", config.node_type, level.c_str());
+        }
+        else
+        {
+          sirenActive = false;
+          digitalWrite(SIREN_PIN, LOW);
+          digitalWrite(STROBE_GREEN, LOW);
+          digitalWrite(STROBE_ORANGE, LOW);
+          digitalWrite(STROBE_RED, LOW);
+          output.println(F("✅ Matrix cleared to nominal standby status."));
+        }
+      }
+    }
   }
   
-  else if (cmd == "dump_config")
+
+  else if (cmd == "dev_only")
   {
-    output.print(F("SSID Location: "));
-    output.println(config.wifi_ssid);
-    output.print(F("Broker Endpoint: "));
-    output.println(config.mqtt_broker);
-    output.print(F("Validation User: "));
-    output.println(config.mqtt_username);
-    output.print(F("LGU Identifier: "));
-    output.println(config.location);
-    output.print(F("Site Map ID: "));
-    output.println(config.site_id);
-    output.print(F("Node Profiler: "));
-    output.println(config.node_type);
-    output.print(F("Admin Password: "));
-    output.println("********");
-  }
-
-  else if (cmd == "stop" || cmd == "s")
-  {
-    output.println(F("🛑 EMERGENCY STOP COMMAND RECEIVED"));
-
-    // 1. Immediately kill the physical siren output
-    sirenActive = false;
-    sirenOn = false;
-    sirenCyclesRemaining = 0;
-    digitalWrite(SIREN_PIN, LOW);
-    output.println(F("  -> Siren hardware driver forced COLD_IDLE"));
-
-    // 2. Extinguish all strobe lights
-    activeStrobeLevel = ALERT_NONE;
-    strobeState = false;
-    digitalWrite(STROBE_GREEN, LOW);
-    digitalWrite(STROBE_ORANGE, LOW);
-    digitalWrite(STROBE_RED, LOW);
-    output.println(F("  -> Strobe matrix forced OFF"));
-
-    // 3. Reset internal alert state machine engines
-    currentAlert = ALERT_NONE;
-    targetAlert = ALERT_NONE;
-    stableSampleCount = 0;
-
-    // 4. Reset Status LED back to normal operating pattern
-    setLedPattern(&PATTERN_NORMAL);
-
-    output.println(F("✅ System state engine forced to nominal standby."));
+    output.println(F("\n⚠️  ENTERED DEVELOPER PRIVILEGED AREA"));
+    output.println(F("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
+    output.printf("  Target SSID    : %s\n", config.wifi_ssid);
+    output.printf("  WPA2 Pwd       : %s\n", config.wifi_password);
+    output.printf("  Admin Master   : %s\n", config.admin_password);
+    output.printf("  MQTT Broker    : %s\n", config.mqtt_broker);
+    output.printf("  MQTT Pwd       : %s\n", config.mqtt_password);
+    output.printf("  MQTT Port      : %s\n", config.mqtt_port);
+    output.println(F("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
   }
 
   else
@@ -956,9 +988,6 @@ void processCommand(String &cmd, Stream &output)
   output.print(F("> "));
 }
 
-// ============================================
-// ASYNC CORE NETWORK ENGINE
-// ============================================
 void handleWiFi()
 {
   uint8_t current_status = WiFi.status();
@@ -973,6 +1002,9 @@ void handleWiFi()
       connectionRetryCount = 0;
       lastWifiAttempt = 0;
       Serial.println(F("\n✅ Wireless Link Secured."));
+      
+      esp_wifi_set_ps(WIFI_PS_NONE); // Disabling Wi-Fi Power Save Mode
+      
       printNetworkStatus(Serial);
       setupTelnet();
       setLedPattern(&PATTERN_NORMAL);
@@ -1082,9 +1114,6 @@ void connectMQTT()
   }
 }
 
-// ============================================
-// MESSAGE HANDLERS
-// ============================================
 String getMessage(AlertLevel level)
 {
   bool isRoad = (strcmp(config.node_type, "road") == 0);
@@ -1153,9 +1182,6 @@ String getInstruction(AlertLevel level)
   }
 }
 
-// ============================================
-// MQTT & TELEMETRY
-// ============================================
 void sendMQTT(AlertLevel level, const char *eventType)
 {
   if (!mqtt.connected())
@@ -1176,10 +1202,14 @@ void sendMQTT(AlertLevel level, const char *eventType)
   mqttDoc["instruction"] = getInstruction(level);
   mqttDoc["rssi"] = WiFi.RSSI();
 
-  char buffer[512];
-  serializeJson(mqttDoc, buffer);
-  mqtt.publish(lgu_all_topic.c_str(), buffer);
-  mqtt.publish(admin_topic.c_str(), buffer);
+  // Optimized streaming payload to prevent sawtooth latency spikes
+  mqtt.beginPublish(lgu_all_topic.c_str(), measureJson(mqttDoc), false);
+  serializeJson(mqttDoc, mqtt);
+  mqtt.endPublish();
+
+  mqtt.beginPublish(admin_topic.c_str(), measureJson(mqttDoc), false);
+  serializeJson(mqttDoc, mqtt);
+  mqtt.endPublish();
 }
 
 void sendTelemetry()
@@ -1203,30 +1233,19 @@ void sendTelemetry()
   mqttDoc["message"] = getMessage(currentAlert);
   mqttDoc["instruction"] = getInstruction(currentAlert);
 
-  char buffer[512];
-  serializeJson(mqttDoc, buffer);
-  mqtt.publish(lgu_all_topic.c_str(), buffer);
-  mqtt.publish(admin_topic.c_str(), buffer);
+  // Optimized streaming payload to prevent sawtooth latency spikes
+  mqtt.beginPublish(lgu_all_topic.c_str(), measureJson(mqttDoc), false);
+  serializeJson(mqttDoc, mqtt);
+  mqtt.endPublish();
+
+  mqtt.beginPublish(admin_topic.c_str(), measureJson(mqttDoc), false);
+  serializeJson(mqttDoc, mqtt);
+  mqtt.endPublish();
 
   Serial.println(F("📡 Secure Telemetry Burst Dispatched."));
   ledSignalTelemetry();
 }
 
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-// ============================================
-// HARDWARE PERIPHERAL STEP CONTROLLERS
-// ============================================
 void updateStrobeLights()
 {
   unsigned long now = millis();
@@ -1396,45 +1415,23 @@ void processSerialCommands()
     }
   }
 }
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//                                                    ============================================
-//                                                               Setup & Loop
-//                                                    ============================================
+
 void setup()
 {
-  Serial.begin(115200);
-  unsigned long start = millis();
-  while (!Serial && (millis() - start < 2000))
-  {
-    delay(10);
-  }
 
-  // Initialize RGB LED
+
+  Serial.begin(115200);
+  delay(100);
+  Serial.println("stabilizing power rails...");
+  delay(2000);
+  Serial.println("Caps Stabled. Initializing DRM Core...");
+
+  Serial.setTxTimeoutMs(0);
+
   FastLED.addLeds<LED_TYPE, RGB_LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.setBrightness(RGB_BRIGHTNESS);
   setLedPattern(&PATTERN_BOOTING, true, 3000);
 
-  // Initialize pins
   pinMode(PROBE_LOW, INPUT_PULLUP);
   pinMode(PROBE_MID, INPUT_PULLUP);
   pinMode(PROBE_HIGH, INPUT_PULLUP);
@@ -1442,6 +1439,7 @@ void setup()
   pinMode(STROBE_ORANGE, OUTPUT);
   pinMode(STROBE_RED, OUTPUT);
   pinMode(SIREN_PIN, OUTPUT);
+  
   digitalWrite(STROBE_GREEN, LOW);
   digitalWrite(STROBE_ORANGE, LOW);
   digitalWrite(STROBE_RED, LOW);
@@ -1453,7 +1451,6 @@ void setup()
   command_topic = "drm/" + String(config.site_id) + "/command";
   admin_topic = "drm/admin/all";
 
-  // Setup MQTT
   espClient.setInsecure();
   mqtt.setServer(config.mqtt_broker, atoi(config.mqtt_port));
   mqtt.setCallback(mqttCallback);
@@ -1486,7 +1483,7 @@ void loop()
 
   if (!wifi_connected)
   {
-    delay(1);
+    vTaskDelay(pdMS_TO_TICKS(10));
     return;
   }
 
@@ -1515,5 +1512,6 @@ void loop()
     sendMQTT(currentAlert, "continuous");
     lastContinuousSend = cur;
   }
-  delay(1);
+  
+  vTaskDelay(pdMS_TO_TICKS(1));
 }
