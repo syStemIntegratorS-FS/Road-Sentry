@@ -1,9 +1,9 @@
+## Ignore the following directories and files
 Main/
 latestMainINO/
-**/*.ino
 Firmware/
-src/
-Firmware
-platformio.ini
-src/
+
+**/*.ino
+
 *.txt
+*.h
