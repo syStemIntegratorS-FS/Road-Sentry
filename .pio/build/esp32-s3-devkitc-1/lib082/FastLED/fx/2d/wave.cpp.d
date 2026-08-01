@@ -330,13 +330,4 @@
  .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/fastspi_bitbang.h \
  .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/chipsets.h \
  .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/platforms/chipsets_specialized_ws2812.h \
- .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/fl/leds.h \
- .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/fl/clear.h \
- .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/fl/ui.h \
- .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/fl/audio.h \
- .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/fl/fft.h \
- .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/fl/function_list.h \
- .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/fl/ui_impl.h \
- .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/platforms/ui_defs.h \
- .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/sensors/button.h \
- .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/sensors/digital_pin.h
+ .pio/libdeps/esp32-s3-devkitc-1/FastLED/src/fl/leds.h
